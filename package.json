@@ -29,10 +29,7 @@
     "helmet": "^8.1.0",
     "http": "^0.0.1-security",
     "jsonwebtoken": "^9.0.2",
-    "msnodesqlv8": "^4.1.2",
-    "mssql": "^10.0.1",
     "multer": "^1.4.5-lts.1",
-    "mysql2": "^3.14.4",
     "nodemailer": "^6.9.7",
     "path": "^0.12.7",
     "pdf-parse": "^2.4.5",
@@ -59,6 +56,4 @@
     "side-channel": "1.0.6",
     "qs": "6.11.0"
   }
-
-
 }
