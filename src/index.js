@@ -14,6 +14,12 @@ const archiver = require('archiver');
 const multer = require('multer');
 const fastXmlParser = require('fast-xml-parser');
 const { XMLParser } = fastXmlParser;
+
+const { DOMMatrix, ImageData, Path2D } = require('canvas');
+global.DOMMatrix = global.DOMMatrix || DOMMatrix;
+global.ImageData = global.ImageData || ImageData;
+global.Path2D   = global.Path2D   || Path2D;
+
 const pdfParse = require('pdf-parse');
 const axios = require('axios');
 const xml2js = require('xml2js');
