@@ -51,5 +51,12 @@
   "devDependencies": {
     "morgan": "^1.10.0",
     "nodemon": "^3.0.1"
+  },
+  "overrides": {
+    "gopd": "1.0.1",
+    "get-intrinsic": "1.2.4",
+    "side-channel": "1.0.6",
+    "qs": "6.11.0"
   }
+
 }
