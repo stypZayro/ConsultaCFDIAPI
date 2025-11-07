@@ -218,29 +218,36 @@ function parseSoapResponse(xml) {
     ignoreAttributes: false,
     attributeNamePrefix: '',
     allowBooleanAttributes: true,
-    parseTagValue: false,
+    parseTagValue: false,      // ok: evita parsear a número/boolean
     parseAttributeValue: false,
     trimValues: true,
-    removeNSPrefix: true,     // 👈 clave: elimina cfdi:, tfd:, etc.
-  })
-  
-  const parsed = parser.parse(xml);
-  const fault = parsed?.['s:Envelope']?.['s:Body']?.['s:Fault'];
+    removeNSPrefix: true,      // 👈 quita s:, a:, etc.
+    emptyTagValue: ''          // 👈 <EstatusCancelacion/> => ''
+  });
+
+  const j = parser.parse(xml);
+
+  // Si viene un Fault, lánzalo
+  const fault = j?.Envelope?.Body?.Fault;
   if (fault) {
     const code = fault?.faultcode ?? '';
     const msg  = fault?.faultstring ?? 'SOAP Fault';
     throw new Error(`SAT SOAP Fault: ${code} - ${msg}`);
   }
-  const body = parsed?.['s:Envelope']?.['s:Body'];
-  const resp = body?.['ConsultaResponse'] ?? body?.['a:ConsultaResponse'] ?? {};
-  const result = resp?.['ConsultaResult'] ?? resp?.['a:ConsultaResult'] ?? {};
-  const pick = (k) => result[`a:${k}`] ?? result[k] ?? null;
+
+  // Rutas sin prefijos por removeNSPrefix
+  const body   = j?.Envelope?.Body ?? {};
+  const resp   = body?.ConsultaResponse ?? body?.Response ?? {};
+  const result = resp?.ConsultaResult ?? resp?.Result ?? {};
+
+  const get = (k) => (k in result ? result[k] : null);
+
   return {
-    codigoEstatus:      pick('CodigoEstatus'),
-    estado:             pick('Estado'),
-    esCancelable:       pick('EsCancelable'),
-    estatusCancelacion: pick('EsCancelable'),
-    validacionEFOS:     pick('ValidacionEFOS'),
+    codigoEstatus:      get('CodigoEstatus'),
+    estado:             get('Estado'),
+    esCancelable:       get('EsCancelable'),
+    estatusCancelacion: get('EsCancelable'), 
+    validacionEFOS:     get('ValidacionEFOS'),
   };
 }
 async function consultaSAT({ uuid, rfcEmisor, rfcReceptor, total }) {
@@ -650,8 +657,9 @@ app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100)
           }
         );
         if (status >= 400) throw new Error(`HTTP ${status} del SAT`);
+        console.log(data)
         const sat = parseSoapResponse(data);
-        //console.log(sat.estatusCancelacion)
+        console.log(sat)
 
         const html = buildHTML({
           rfcEmisor: String(reqData.rfcEmisor).toUpperCase(),
