@@ -13,6 +13,10 @@ const jwt = require('jsonwebtoken');
 const archiver = require('archiver');
 const multer = require('multer');
 const fastXmlParser = require('fast-xml-parser');
+const { sql } = require('./dbPool');
+const { sp_intertar_registro_consultas_cfdi } = require('./repoConsultasCfdi'); 
+
+
 const { XMLParser } = fastXmlParser;
 
 const { DOMMatrix, ImageData, Path2D } = require('canvas');
@@ -51,6 +55,10 @@ app.use(cors({ origin: CORS_ORIGINS, credentials: true }));
 
 // Logs
 app.use(morgan('dev'));
+process.on('SIGINT', async () => {
+  try { await sql.close(); } catch {}
+  process.exit(0);
+});
 
 // JSON parser con límite y manejo de errores JSON
 app.use(express.json({ limit: '512kb' }));
@@ -569,6 +577,56 @@ function noCompression(req, res, next) {
   next();
 }
 
+// Transport de correo (ajusta credenciales/host/puerto/seguridad)
+const mailer = nodemailer.createTransport({
+  host: process.env.hostemail,       // ej. "smtp.gmail.com"
+  port: process.env.portemail,
+  secure: true, // true si usas 465
+  auth: {
+    user: process.env.useremail,
+    pass: process.env.passemail
+  },
+  // Opcional: tiempos máximos para no colgar
+  connectionTimeout: 15_000,
+  greetingTimeout: 10_000,
+  socketTimeout: 20_000,
+});
+function buildMailHtml({ title, intro, list = [] }) {
+  const li = list.map(x => `<li>${x}</li>`).join('');
+  return `
+    <div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:#222">
+      <h2 style="margin:0 0 8px 0">${title}</h2>
+      <p>${intro}</p>
+      ${list.length ? `<ul>${li}</ul>` : ''}
+      <p style="margin-top:16px;color:#666">Mensaje automático — Zayro Logistics</p>
+    </div>
+  `;
+}
+
+// Helper: timeout duro de promesas de correo (para no bloquear la respuesta)
+async function sendMailWithTimeout(options, ms = 12000) {
+  let t;
+  const killer = new Promise((_, rej) => {
+    t = setTimeout(() => rej(new Error(`Timeout al enviar correo (${ms}ms)`)), ms);
+  });
+  try {
+    const out = await Promise.race([mailer.sendMail(options), killer]);
+    return out;
+  } finally {
+    clearTimeout(t);
+  }
+}
+function normalizeXmlForSql(xml) {
+  let s = String(xml ?? '');
+  // BOM al inicio
+  s = s.replace(/^\uFEFF/, '');
+  // quitar declaración XML completa (evita encoding="..."):
+  s = s.replace(/^<\?xml[^?]*\?>\s*/i, '');
+  // caracteres de control no permitidos por el parser XML de SQL Server
+  s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  return s.trim();
+}
+
 app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100),async (req, res) => {
     const files = req.files || [];
     if (files.length === 0) {
@@ -657,9 +715,26 @@ app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100)
           }
         );
         if (status >= 400) throw new Error(`HTTP ${status} del SAT`);
-        console.log(data)
+   
         const sat = parseSoapResponse(data);
-        console.log(sat)
+        console.log(reqData.uuid)
+        try {
+          const xmlFactura   = normalizeXmlForSql(xmlText);      // XML original que subió el usuario
+          const xmlRespuesta = normalizeXmlForSql(data);    // Respuesta cruda del SAT como string
+
+          await withTimeout(
+            sp_intertar_registro_consultas_cfdi(
+              String(reqData.uuid).toUpperCase(),
+              xmlFactura,
+              xmlRespuesta
+            ),
+            10_000,
+            `SP consultas_cfdi (1 archivo ${reqData.uuid})`
+          );
+        } catch (spErr) {
+          console.warn('SP (1 archivo) falló:', spErr.message);
+          // No romper el flujo: continuamos con PDF y respuesta
+        }
 
         const html = buildHTML({
           rfcEmisor: String(reqData.rfcEmisor).toUpperCase(),
@@ -680,6 +755,39 @@ app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100)
 
         const safeUuid = String(reqData.uuid).toUpperCase().replace(/[^A-Z0-9\-]/g, '_');
         const fileName = `verificacion_${safeUuid}.pdf`;
+        // === Enviar correo ANTES de responder al navegador ===
+        try {
+          const notifyTo = (req.body.notifyTo || req.query.notifyTo || process.env.NOTIFY_TO || '').trim();
+          if (notifyTo) {
+            await sendMailWithTimeout({
+              from: 'sistemas@zayro.com',
+              to: notifyTo,
+              subject: `[CFDI] Verificación ${String(reqData.uuid).toUpperCase()} — ${sat.estado || 'SIN ESTADO'}`,
+              html: buildMailHtml({
+                title: 'Verificación CFDI (1 archivo)',
+                intro: `Se validó el CFDI.`,
+                list: [
+                  `UUID: ${String(reqData.uuid).toUpperCase()}`,
+                  `Emisor: ${String(reqData.rfcEmisor).toUpperCase()}`,
+                  `Receptor: ${String(reqData.rfcReceptor).toUpperCase()}`,
+                  `Estado SAT: ${sat.estado || 'N/D'}`,
+                  `Estatus cancelación: ${sat.estatusCancelacion || 'N/D'}`,
+                ],
+              }),
+              attachments: [
+                {
+                  filename: `verificacion_${String(reqData.uuid).toUpperCase().replace(/[^A-Z0-9\-]/g,'_')}.pdf`,
+                  content: pdfBuffer
+                }
+              ],
+            }, 12000); // timeout de envío de correo
+          }
+        } catch (mailErr) {
+          console.warn('Correo (1 archivo) falló:', mailErr.message);
+        }
+        // === Fin correo ===
+
+
 
         res.status(200);
         res.setHeader('Cache-Control', 'no-store');
@@ -774,6 +882,26 @@ app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100)
             if (satResp.status >= 400) throw new Error(`HTTP ${satResp.status} del SAT`);
             const sat = parseSoapResponse(satResp.data);
             //console.log(sat.estatusCancelacion)
+            try {
+              const xmlFactura = normalizeXmlForSql(xmlText);                 // string UTF-8
+              const xmlRespuesta = normalizeXmlForSql(satResp.data);    // asegura string
+              await withTimeout(
+                sp_intertar_registro_consultas_cfdi(
+                  String(reqData.uuid).toUpperCase(),
+                  xmlFactura,
+                  xmlRespuesta
+                ),
+                10_000,
+                `SP consultas_cfdi (${reqData.uuid})`
+              );
+              entry.dbSaved = true; // opcional: marca en manifest
+            } catch (spErr) {
+              entry.dbSaved = false;
+              entry.dbError = spErr.message;
+              console.warn(`SP (ZIP ${reqData.uuid}) falló:`, spErr.message);
+            }
+
+
             const html = buildHTML({
               rfcEmisor: String(reqData.rfcEmisor).toUpperCase(),
               nombreEmisor: reqData.nombreEmisor,
@@ -822,6 +950,46 @@ app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100)
 
       // No bloquees el finalize por tareas colgadas
       await Promise.allSettled(tasks);
+            // Cierra Puppeteer ANTES de correo y finalize
+      try { await browser.close(); } catch {}
+      browser = null;
+
+      // === Enviar correo ANTES de finalizar el ZIP ===
+      // Prepara un resumen y adjunta manifest.json
+      try {
+        const notifyTo = (req.body.notifyTo || req.query.notifyTo || process.env.NOTIFY_TO || '').trim();
+        if (notifyTo) {
+          const okCount  = manifest.filter(x => x.ok === true).length;
+          const errCount = manifest.filter(x => !x.ok).length;
+          const intro    = `Se procesaron ${files.length} XML. OK: ${okCount} — Errores: ${errCount}.`;
+
+          await sendMailWithTimeout({
+            from: 'sistemas@zayro.com',
+            to: notifyTo,
+            subject: `[CFDI] Verificación masiva (${okCount} OK / ${errCount} con error)`,
+            html: buildMailHtml({
+              title: 'Verificación CFDI (múltiples archivos)',
+              intro,
+              list: [
+                `Total recibidos: ${files.length}`,
+                `Correctos: ${okCount}`,
+                `Con error: ${errCount}`,
+              ],
+            }),
+            attachments: [
+              {
+                filename: 'manifest.json',
+                content: Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'),
+                contentType: 'application/json'
+              }
+            ],
+          }, 15000);
+        }
+      } catch (mailErr) {
+        console.warn('Correo (ZIP) falló:', mailErr.message);
+      }
+      // === Fin correo ===
+
 
       // Cierra Puppeteer ANTES de finalizar el ZIP
       try { await browser.close(); } catch {}
