@@ -14,6 +14,7 @@ const archiver = require('archiver');
 const multer = require('multer');
 const fastXmlParser = require('fast-xml-parser');
 const { sql } = require('./dbPool');
+const os = require('os');
 const { sp_intertar_registro_consultas_cfdi } = require('./repoConsultasCfdi'); 
 
 
@@ -810,6 +811,15 @@ app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100)
       try { res.setTimeout(0); } catch {}
 
       archive = archiver('zip', { zlib: { level: 9 } });
+      // ---- tee: response + archivo temporal ----
+      const tmpZipPath = path.join(os.tmpdir(), `verificaciones_cfdi_${Date.now()}.zip`);
+      const fileStream = fs.createWriteStream(tmpZipPath);
+      const tee = new PassThrough();
+
+      // Importante: pipe SOLO a tee, y de tee a ambos destinos.
+      archive.pipe(tee);
+      tee.pipe(res);
+      tee.pipe(fileStream);
       archive.on('warning', (w) => console.warn('archiver warning:', w));
       archive.on('error',   (e) => { console.error('archiver error:', e); try { res.end(); } catch {} });
       archive.on('finish',  () => console.log('ZIP bytes escritos:', archive.pointer()));
@@ -824,6 +834,7 @@ app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100)
 
       // FLUSH temprano de headers
       if (typeof res.flushHeaders === 'function') res.flushHeaders();
+      
 
       // Primer chunk para que el navegador salga del 0%
       //archive.append(Buffer.from('Procesando archivos...\n', 'utf8'), { name: 'LEEME.txt' });
@@ -953,8 +964,11 @@ app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100)
             // Cierra Puppeteer ANTES de correo y finalize
       try { await browser.close(); } catch {}
       browser = null;
-
-      // === Enviar correo ANTES de finalizar el ZIP ===
+      // FINALIZAR ZIP SIEMPRE
+      await safeFinalizeZip();
+      // ======= ENVÍO DE CORREO CON ZIP ADJUNTO =======
+      // Espera a que el archivo temporal termine de escribirse:
+      await new Promise((resolve) => fileStream.once('close', resolve))
       // Prepara un resumen y adjunta manifest.json
       try {
         const notifyTo = (req.body.notifyTo || req.query.notifyTo || process.env.NOTIFY_TO || '').trim();
@@ -976,11 +990,17 @@ app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100)
                 `Con error: ${errCount}`,
               ],
             }),
-            attachments: [
+           attachments: [
+              // 1) manifest.json (opcional)
               {
                 filename: 'manifest.json',
                 content: Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'),
                 contentType: 'application/json'
+              },
+              // 2) ZIP completo generado (desde archivo temporal)
+              {
+                filename: 'verificaciones_cfdi.zip',
+                path: tmpZipPath               // <<--- así adjuntas el ZIP
               }
             ],
           }, 15000);
@@ -995,8 +1015,7 @@ app.post('/facturacfdi/validar-cfdi',noCompression,uploadcfdi.array('xmls', 100)
       try { await browser.close(); } catch {}
       browser = null;
 
-      // FINALIZAR ZIP SIEMPRE
-      await safeFinalizeZip();
+      
       return;
 
     } catch (e) {

@@ -1,9 +1,6 @@
 # Dependencias
 node_modules/
 
-# Entorno / credenciales
-.env
-.env.* 
 
 # Logs y cobertura
 logs/
