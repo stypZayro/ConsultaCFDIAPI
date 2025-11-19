@@ -1,4 +1,4 @@
-const { sql, getPool } = require('./dbPool');
+const { sql, getPool } = require('../../dbPool');
 
 function ensureString(x) {
   return typeof x === 'string' ? x : (x == null ? '' : String(x));
