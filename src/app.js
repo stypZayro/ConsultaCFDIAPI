@@ -9,6 +9,7 @@ const path = require('path');
 
 const { validate, authBearer, errorHandler, z } = require('./middlewares');
 const apiRoutes = require('./routes/cfdi.routes');
+const gastosRoutes = require("./routes/gastos.routes");
 
 
 const app = express();
@@ -124,6 +125,7 @@ app.use((req, res, next) => {
 // ====================== Rutas /facturacfdi ======================
 // authBearer se puede aplicar aquí
 app.use('/facturacfdi', authBearer, apiRoutes);
+app.use("/VentanaGastos", authBearer, gastosRoutes);
 
 // Error global
 app.use(errorHandler);
