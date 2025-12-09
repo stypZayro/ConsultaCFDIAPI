@@ -19,3 +19,5 @@ routerAdu.get("/ConsultarGastos", heavyLimiter,
 routerAdu.post("/AsignarGasto", heavyLimiter,
   consultasGastos.asignarGasto,
 );
+
+module.exports = routerAdu
