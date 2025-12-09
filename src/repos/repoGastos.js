@@ -39,7 +39,7 @@ async function sp_VerificarUs_Gastos (usuario) {
     };
 }
 
-async function sp_BuscarGastos(referencia, cliente, asig = false) {
+async function sp_BuscarGastos(referencia = "", cliente = 0, asig = false) {
 	const sp_Name = "[Aduana].[dbo].[sp_BuscarGastos_Referencia]";
 	const 
 		varRef = ensureString(referencia),
