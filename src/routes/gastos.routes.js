@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const rateLimit = require('express-rate-limit');
 
-const consultasGastos = require("../controllers/gastos.controller");
+const controlGastos = require("../controllers/gastos.controller");
 const routerAdu = Router();
 
 const heavyLimiter = rateLimit({
@@ -11,13 +11,14 @@ const heavyLimiter = rateLimit({
   legacyHeaders: false
 });
 
-routerAdu.post("/login", consultasGastos.verificarUsuario
+routerAdu.post("/login", heavyLimiter, controlGastos.uploadGastos.none(),
+  controlGastos.verificarUsuario,
 )
-routerAdu.get("/ConsultarGastos", heavyLimiter,
-  consultasGastos.buscarGastos,
-);
-routerAdu.post("/AsignarGasto", heavyLimiter,
-  consultasGastos.asignarGasto,
-);
+routerAdu.post("/ConsultarGastos", heavyLimiter, controlGastos.uploadGastos.none(),
+  controlGastos.buscarGastos,
+);/*
+routerAdu.post("/AsignarGasto", heavyLimiter, controlGastos.uploadGastos.none(),
+  controlGastos.asignarGasto,
+);*/
 
 module.exports = routerAdu
