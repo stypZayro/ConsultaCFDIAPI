@@ -21,7 +21,7 @@ async function sp_VerificarUs_Gastos (usuario) {
     try {
         const pool = await getPoolAdu();
         const req = pool.request();
-        req.input("usuario", sql.VarChar(20), varUs)
+        req.input("usuario", sqlAdu.VarChar(100), varUs)
         req.requestTimeout = Number(process.env.SQL_REQUEST_TIMEOUT || 12000)
         const result = await req.execute(sp_Name);
         return {
@@ -40,15 +40,17 @@ async function sp_VerificarUs_Gastos (usuario) {
 }
 
 async function sp_BuscarGastos(referencia = "", cliente = 0, asig = false) {
-	const sp_Name = "[Aduana].[dbo].[sp_BuscarGastos_Referencia]";
+	const sp_Name = "[Aduana].[dbo].[sp_BuscarGastos]";
 	const 
 		varRef = ensureString(referencia),
 		varCli = ensureNumber(cliente);
-    if (!varRef) {
+    /*
+        if (!varRef) {
         throw new Error("Referencia no especificada.");
-    } else if (!varCli || varCli === NaN) {
-        throw new Error("Cliente inválido o no especificado.");
+    } else if (varCli === NaN) {
+        throw new Error("Cliente inválido.");
     };
+    */
 	try {
 		const pool = await getPoolAdu();
 		const req = pool.request();
@@ -73,7 +75,7 @@ async function sp_BuscarGastos(referencia = "", cliente = 0, asig = false) {
 		throw error;
 	}
 };
-
+/*
 async function sp_AsignarGasto(referencia = "", gastoId, valorGasto) {
     const sp_Name = "[Aduana].[dbo].[sp_AsignarGasto]";
     const
@@ -108,8 +110,9 @@ async function sp_AsignarGasto(referencia = "", gastoId, valorGasto) {
         throw error;
     }
 }
+*/
 module.exports = { 
     sp_BuscarGastos, 
-    sp_AsignarGasto,
+    //sp_AsignarGasto,
     sp_VerificarUs_Gastos
 };

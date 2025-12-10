@@ -5,10 +5,10 @@ let poolPromiseAdu = null;
 function getPoolAdu() {
 	if (!poolPromiseAdu) {
 		const cfg = {
-			server: process.env.serveraduana,
-			post: NUMBER(process.env.SQL_POST || 1433),
+			server: "slamnet.zayro.com",//process.env.serveraduana,
+			port: 23390,//Number(process.env.SQL_POST || 1433),
 			database: process.env.database,
-			iser: process.env.user,
+			user: process.env.user,
 			password: process.env.passwordaduana,
 			options: {
 				encrypt: String(process.env.SQL_ENCRYPT || "false") === "true",
@@ -26,19 +26,19 @@ function getPoolAdu() {
 		["serveraduana", "database", "passwordaduana"].forEach(j => {
 			if (!process.env[j]) { console.warn(`[mssql] ENV faltante: ${j}`) };
 		});
-		poolPromiseAdu = new sql.ConnectionPool(cfg)
+		poolPromiseAdu = new sqlAdu.ConnectionPool(cfg)
 			.connect()
 			.then(pool => {
-				console.log("[mssql] Pool conectado");
+				//console.log("[mssql] Pool conectado");
 				return pool;
 			})
 			.catch(err => {
 				poolPromiseAdu = null;
-				console.errot("[mssql] Error conectando:", err.message);
+				console.error("[mssql] Error conectando:", err.message);
 				throw err;
 			})
 	};
 	return poolPromiseAdu;
 };
 
-module.exports = {sqlAdu, getPoolAdu };
+module.exports = { sqlAdu, getPoolAdu };
